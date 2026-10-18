@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Build output
+dist/
+backend/dist/
+frontend/dist/
+
+# Local secrets and project-specific configuration
+.env
+.env.*
+!.env.example
+backend/.env
+frontend/config.js
+backend/tests/events/*.local.json
+
+# Evaluation data (your own private test images)
+evaluation/test-set/*.jpg
+evaluation/test-set/*.jpeg
+evaluation/test-set/*.png
+evaluation/test-set/*.webp
+evaluation/results/
+
+# OS / editor
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+*.log

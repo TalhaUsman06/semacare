@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f8fafc" />
+    <title>SEMACARE — Local-first picture organiser</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+    <script src="./config.js" defer></script>
+    <script src="./app.js" defer></script>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="./" aria-label="SEMACARE home">
+        <span class="brand-mark" aria-hidden="true">S</span>
+        <span>SEMACARE</span>
+      </a>
+      <span class="demo-tag">Local-first MVP</span>
+    </header>
+
+    <main class="page">
+      <section class="intro">
+        <p class="eyebrow">A calmer way to tidy your pictures</p>
+        <h1>Find pictures by what they show.</h1>
+        <p class="intro-copy">
+          Choose a folder to preview your images and review the categories.
+          Images stay in this browser; metadata sync is optional.
+        </p>
+      </section>
+
+      <section class="auth-panel" aria-labelledby="auth-title">
+        <div class="auth-copy">
+          <h2 id="auth-title">Optional Supabase account</h2>
+          <p>
+            Sign in to save scan and category metadata to your account. Original
+            pictures and filenames stay on this device.
+          </p>
+          <p class="auth-status" id="auth-status" aria-live="polite">
+            Supabase is not configured. The local organiser still works.
+          </p>
+        </div>
+        <form class="auth-form" id="auth-form">
+          <label>
+            Email
+            <input id="auth-email" type="email" autocomplete="username" required />
+          </label>
+          <label>
+            Password
+            <input id="auth-password" type="password" autocomplete="current-password" minlength="6" required />
+          </label>
+          <div class="auth-actions">
+            <button class="button button-primary" id="sign-in" type="submit">Sign in</button>
+            <button class="button button-secondary" id="sign-up" type="button">Create account</button>
+            <button class="button button-text" id="sign-out" type="button" hidden>Sign out</button>
+            <button class="button button-danger" id="erase-cloud-scan" type="button" hidden>
+              Erase all my saved metadata
+            </button>
+          </div>
+          <label class="metadata-consent">
+            <input id="metadata-consent" type="checkbox" />
+            Allow SEMACARE to save scan and category metadata to Supabase. Pictures,
+            filenames, and paths are never sent.
+          </label>
+          <label class="metadata-consent">
+            <input id="ai-upload-consent" type="checkbox" />
+            I agree to send temporary, resized image thumbnails to SEMACARE's AWS
+            service for AI classification. Originals, filenames, and paths are not
+            uploaded. AWS charges may apply.
+          </label>
+        </form>
+      </section>
+
+      <aside class="demo-notice" aria-label="Important demo information">
+        <span class="notice-icon" aria-hidden="true">i</span>
+        <p>
+          <strong>AI uploads are optional:</strong> without API configuration and both
+          consent checkboxes, categories use filenames only. With AI upload enabled,
+          resized temporary thumbnails are sent to AWS and deleted after processing;
+          AWS charges may apply. Filenames and paths are not sent. The bin only changes
+          this page, and emptying it can remove saved category metadata.
+          It does <strong>not</strong> delete original files.
+        </p>
+      </aside>
+
+      <section class="folder-panel" aria-labelledby="folder-title">
+        <div class="folder-copy">
+          <h2 id="folder-title">Start with a picture folder</h2>
+          <p>Choose JPG, PNG, or WebP images. Pictures stay on this device unless you opt in to AWS AI processing.</p>
+        </div>
+        <div class="folder-actions">
+          <button class="button button-primary" id="choose-folder" type="button">
+            Choose folder
+          </button>
+          <button class="button button-secondary" id="choose-files" type="button">
+            Choose pictures
+          </button>
+          <input
+            id="folder-input"
+            class="visually-hidden"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            webkitdirectory
+            directory
+            multiple
+            tabindex="-1"
+            aria-label="Choose a folder of pictures"
+          />
+          <input
+            id="files-input"
+            class="visually-hidden"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            multiple
+            tabindex="-1"
+            aria-label="Choose picture files"
+          />
+        </div>
+        <p class="folder-summary" id="folder-summary" aria-live="polite">
+          No folder selected yet.
+        </p>
+      </section>
+
+      <section class="results" id="results" aria-labelledby="results-title" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Your pictures, kept on this device</p>
+            <h2 id="results-title">Review your pictures</h2>
+          </div>
+          <div class="view-switch" role="group" aria-label="Choose a view">
+            <button class="view-button is-active" id="view-categories" type="button" aria-pressed="true">
+              Categories
+            </button>
+            <button class="view-button" id="view-bin" type="button" aria-pressed="false">
+              Local bin <span class="bin-count" id="bin-count">0</span>
+            </button>
+          </div>
+        </div>
+
+        <div id="categories-view">
+          <div class="category-grid" id="category-grid" aria-label="Picture categories"></div>
+          <div class="review-toolbar">
+            <p id="selection-count" aria-live="polite">0 selected</p>
+            <div class="toolbar-actions">
+              <button class="button button-secondary" id="export-csv" type="button">Export CSV</button>
+              <button class="button button-text" id="select-visible" type="button">Select visible</button>
+              <button class="button button-text" id="clear-selection" type="button">Clear selection</button>
+              <button class="button button-danger" id="move-to-bin" type="button" disabled>
+                Move to local bin
+              </button>
+            </div>
+          </div>
+          <div class="image-grid" id="image-grid"></div>
+        </div>
+
+        <div id="bin-view" hidden>
+          <div class="bin-heading">
+            <div>
+              <h3>Local recycle bin</h3>
+              <p>These items are hidden from your categories, but the original files stay untouched.</p>
+            </div>
+            <button class="button button-danger" id="empty-bin" type="button" disabled>
+              Empty local bin
+            </button>
+          </div>
+          <div class="image-grid" id="bin-grid"></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>SEMACARE prototype · Images stay on this device · No original files are deleted</p>
+    </footer>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+  </body>
+</html>

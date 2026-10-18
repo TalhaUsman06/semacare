@@ -1,0 +1,12 @@
+{
+  "Rules": [
+    {
+      "ID": "expire-thumbnails",
+      "Status": "Enabled",
+      "Filter": {},
+      "Expiration": {
+        "Days": 1
+      }
+    }
+  ]
+}
