@@ -24,7 +24,7 @@ test("frontend exposes the complete selection and review controls", () => {
 
 test("frontend exposes every required export and deletion action", () => {
   for (const id of [
-    "export-csv", "export-info-csv", "export-info-json", "view-information",
+    "export-csv", "export-info-csv", "export-info-json", "view-information", "export-performance",
     "export-images", "select-visible", "clear-selection", "move-to-bin", "empty-bin",
   ]) assert.equal(hasId(id), true, `missing #${id}`);
   assert.match(html, /recoverable recycle bin/i);
@@ -45,8 +45,19 @@ test("privacy and persistence contracts are present", () => {
   assert.match(app, /sensitive_reasons/);
   assert.match(app, /meaningful_fields/);
   assert.match(app, /ocr_processed/);
+  assert.match(app, /deletion_error/);
   assert.match(app, /JSON\.stringify\(record, null, 2\)/);
   assert.match(html, /Pictures never leave this device/i);
+});
+
+test("deletion status follows the actual filesystem result", () => {
+  assert.match(app, /const successfullyDeleted = \[\];/);
+  assert.match(app, /const failedDeletions = \[\];/);
+  assert.match(app, /await image\.parentHandle\.removeEntry\(image\.name\)/);
+  assert.match(app, /successfullyDeleted\.push\(image\)/);
+  assert.match(app, /failedDeletions\.push\(image\)/);
+  assert.match(app, /deleteCloudImageRows\(successfullyDeleted\.map/);
+  assert.match(app, /state\.images = state\.images\.filter\(\(image\) => !removedIds\.has\(image\.id\)\)/);
 });
 
 test("OCR progress and export reuse are wired", () => {
@@ -55,6 +66,14 @@ test("OCR progress and export reuse are wired", () => {
   assert.match(app, /Text extraction complete/);
   assert.match(app, /image\.ocrProcessed = true/);
   assert.match(html, /Export information JSON/);
+});
+
+test("performance evidence export is wired without image upload", () => {
+  assert.match(app, /semacare-performance/);
+  assert.match(app, /PERF-01/);
+  assert.match(app, /PERF-06/);
+  assert.match(app, /PERF-11/);
+  assert.match(app, /downloadJson\(performanceReport\(\)/);
 });
 
 test("archive UI provides search and expandable per-image JSON", () => {

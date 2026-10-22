@@ -39,7 +39,10 @@ The contract suite checks that the app exposes selection controls, local AI cons
 | F21 | Select visible images | Only currently visible filtered images become selected |
 | F22 | Move selected images to local bin | Images leave the active view and appear in the recoverable bin; originals are not silently deleted |
 | F23 | Restore from local bin | Images return with category and metadata intact |
-| F24 | Permanently delete after confirmation | Only confirmed items are deleted when permissions allow; metadata remains as `image_deleted` |
+| F24 | Permanently delete after confirmation | Only files whose `removeEntry` succeeds are removed and marked `image_deleted`; failed files remain `local_bin` with an error |
+| F24a | Deny folder write permission | No image is marked `image_deleted`; affected items remain recoverable in the local bin |
+| F24b | Mix successful and failed file deletions | Successful files are removed; failed files remain in the bin and do not block successful files |
+| F24c | Cloud metadata cleanup fails after local deletion | Local deletion status remains accurate and the cloud-cleanup failure is reported separately |
 | F25 | Search after original deletion | Archive still finds the saved extracted record |
 | F26 | Clear local archive | IndexedDB records are removed after confirmation; original files are unchanged |
 | F27 | Export renamed images | Remaining images download in original formats with category names and no collisions |
@@ -68,3 +71,7 @@ The backend suite covers categorisation, upload URL validation, authentication, 
 ## Evidence to record
 
 Record the date, browser/version, image count, category ground truth, predicted category, sensitive result, OCR meaningful/garbage result, processing time, export validity, and manual corrections. Keep live-service tests separate from local tests and never commit credentials or private test images.
+
+## Performance evidence workflow
+
+After a local scan, use **Export performance report**. The JSON contains browser/device hints, dataset count and input bytes, per-operation elapsed times, OCR-triggered images, deletion outcomes, export timings, and failures. Add the manually observed cold/warm cache state, network, operating system, CPU/RAM, permissions, tester and commit hash to the measurement log before using it in Chapter 10. The report is local-only and contains no image pixels.

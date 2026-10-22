@@ -57,7 +57,7 @@ Persistent information records include:
 
 `id`, `filename`, `relative_path`, `category`, `classification_source`, `sensitive`, `sensitive_reasons`, `meaningful_fields`, `extracted_text`, `ocr_confidence`, `ocr_processed`, `face_count`, `status`, `binned_at`, `export_name`, and `updated_at`.
 
-The app does not silently delete originals. The local bin stores review state and handles where available. Permanent deletion preserves the extracted metadata record with `status: image_deleted`, so the user can still search information after deleting the source image. Clearing browser storage can remove this local archive.
+The app does not silently delete originals. The local bin stores review state and handles where available. Permanent deletion is recorded per file from the actual `removeEntry` result: successful removal preserves the extracted metadata record with `status: image_deleted`; missing permissions, missing handles, and per-file failures keep the record at `status: local_bin` with a deletion error. Cloud metadata cleanup is reported separately and cannot falsely change the physical deletion state. Clearing browser storage can remove this local archive.
 
 ## Export behavior
 
@@ -66,6 +66,7 @@ The app does not silently delete originals. The local bin stores review state an
 - **Information JSON:** one structured record per image, with a top-level format/version/export timestamp.
 - **View information:** readable in-app archive with search, key fields, sensitivity/deletion status, and expandable record JSON.
 - **Renamed images:** exports remaining images using category-based names while preserving the original image format.
+- **Performance report:** exports local-only timing evidence for model readiness, classification, OCR, IndexedDB writes, search, bin/deletion operations and exports, together with dataset and browser/device hints. Cache state, network, commit and tester details are added manually before reporting results.
 
 ## AWS status
 

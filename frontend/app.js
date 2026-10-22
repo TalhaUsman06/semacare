@@ -56,6 +56,7 @@ const elements = {
   exportCsv: document.querySelector("#export-csv"),
   exportInfoCsv: document.querySelector("#export-info-csv"),
   exportInfoJson: document.querySelector("#export-info-json"),
+  exportPerformance: document.querySelector("#export-performance"),
   exportImages: document.querySelector("#export-images"),
   moveToBin: document.querySelector("#move-to-bin"),
   emptyBin: document.querySelector("#empty-bin"),
@@ -116,8 +117,88 @@ const state = {
   rootHandle: null,
   exported: false,
   processing: { active: false, total: 0, completed: 0, startedAt: 0 },
+  performance: { runId: null, startedAt: 0, events: [], failures: [], dataset: null },
   toastTimer: 0,
 };
+
+function nowMs() {
+  return window.performance?.now ? window.performance.now() : Date.now();
+}
+
+function resetPerformanceRun(images = []) {
+  state.performance = {
+    runId: crypto.randomUUID(),
+    startedAt: nowMs(),
+    events: [],
+    failures: [],
+    dataset: {
+      count: images.length,
+      input_bytes: images.reduce((total, image) => total + (image.file?.size || 0), 0),
+      formats: images.reduce((formats, image) => {
+        const extension = image.name.match(/\.([^.]+)$/)?.[1]?.toLowerCase() || "unknown";
+        formats[extension] = (formats[extension] || 0) + 1;
+        return formats;
+      }, {}),
+    },
+  };
+  const navigationStart = performance.getEntriesByType("navigation")[0]?.startTime;
+  if (Number.isFinite(navigationStart)) recordPerformance("PERF-01", navigationStart, { phase: "first_interactive_ui" });
+}
+
+function recordPerformance(metric, startedAt, details = {}) {
+  state.performance.events.push({
+    metric,
+    elapsed_ms: Math.round(Math.max(0, nowMs() - startedAt)),
+    recorded_at: new Date().toISOString(),
+    ...details,
+  });
+}
+
+function recordPerformanceFailure(metric, error, details = {}) {
+  state.performance.failures.push({ metric, error: formatError(error), recorded_at: new Date().toISOString(), ...details });
+}
+
+function performanceReport() {
+  const navigation = performance.getEntriesByType("navigation")[0];
+  return {
+    format: "semacare-performance",
+    version: 1,
+    run_id: state.performance.runId,
+    exported_at: new Date().toISOString(),
+    environment: {
+      user_agent: navigator.userAgent,
+      platform: navigator.platform,
+      language: navigator.language,
+      hardware_concurrency: navigator.hardwareConcurrency || null,
+      device_memory_gb: navigator.deviceMemory || null,
+      online: navigator.onLine,
+      navigation_type: navigation?.type || null,
+      navigation_start: navigation?.startTime || null,
+    },
+    cache_note: "Record cold/warm cache state and network details manually for each run.",
+    dataset: state.performance.dataset || { count: 0, input_bytes: 0, formats: {} },
+    events: state.performance.events,
+    failures: state.performance.failures,
+  };
+}
+
+if (window.PerformanceObserver) {
+  try {
+    const longTaskObserver = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        state.performance.events.push({
+          metric: "PERF-13",
+          elapsed_ms: Math.round(entry.duration),
+          recorded_at: new Date().toISOString(),
+          detail: "longtask",
+        });
+      }
+    });
+    longTaskObserver.observe({ type: "longtask", buffered: true });
+  } catch (error) {
+    console.debug("Long-task performance observer unavailable", error);
+  }
+}
 
 function showMessage(message, isError = false) {
   elements.folderSummary.textContent = message;
@@ -220,7 +301,8 @@ async function classifyImagesLocally(images) {
   if (!window.mobilenet?.load || !window.tf) {
     return false;
   }
-  state.processing = { active: true, total: images.length, completed: 0, startedAt: performance.now() };
+  const classificationStartedAt = nowMs();
+  state.processing = { active: true, total: images.length, completed: 0, startedAt: classificationStartedAt };
   updateProcessingProgress({ phase: "Loading local AI models", completed: 0, total: images.length });
   showMessage("Loading local AI model…");
   if (!localModelPromise) {
@@ -244,14 +326,17 @@ async function classifyImagesLocally(images) {
     faceModelPromise = null;
     console.warn("Local face detector could not be loaded", error);
   }
+  recordPerformance("PERF-02", classificationStartedAt, { phase: "local_models_ready" });
   updateProcessingProgress({ phase: "Classifying and checking images", completed: 0, total: images.length });
 
   let next = 0;
   let completed = 0;
+  const batchStartedAt = nowMs();
   const worker = async () => {
     while (next < images.length) {
       const image = images[next];
       next += 1;
+      const imageStartedAt = nowMs();
       try {
         image.quality = await analyseImageQuality(image);
         const preview = new Image();
@@ -266,7 +351,9 @@ async function classifyImagesLocally(images) {
         image.faceCount = 0;
         if (faceModel) {
           try {
+            const faceStartedAt = nowMs();
             const faces = await faceModel.estimateFaces(preview, false);
+            recordPerformance("PERF-05", faceStartedAt, { image_id: image.id, filename: image.name, face_count: Array.isArray(faces) ? faces.length : 0 });
             image.faceCount = Array.isArray(faces) ? faces.length : 0;
             if (image.faceCount > 0 && localResult.category === "Other") {
               image.category = "People";
@@ -280,7 +367,9 @@ async function classifyImagesLocally(images) {
         image.sensitiveReasons = [];
         if (shouldRunOcr(image, predictions)) {
           updateProcessingProgress({ phase: "Reading text in document images", completed, total: images.length });
+          const ocrStartedAt = nowMs();
           const ocrResult = await runLocalOcr(image);
+          recordPerformance("PERF-06", ocrStartedAt, { image_id: image.id, filename: image.name });
           image.ocrText = ocrResult.text;
           image.ocrConfidence = ocrResult.confidence;
           image.textExtracted = ocrResult.text.length >= 10;
@@ -298,6 +387,7 @@ async function classifyImagesLocally(images) {
         console.warn("Local image classification failed", image.name, error);
       }
       completed += 1;
+      recordPerformance("PERF-04", imageStartedAt, { image_id: image.id, filename: image.name, category: image.category });
       updateProcessingProgress({ phase: "Classifying and checking images", completed, total: images.length });
       if (completed % 5 === 0 || completed === images.length) {
         const percentage = Math.round((completed / images.length) * 100);
@@ -307,6 +397,7 @@ async function classifyImagesLocally(images) {
     }
   };
   await Promise.all([worker(), worker()]);
+  recordPerformance("PERF-04-BATCH", batchStartedAt, { count: images.length });
   await persistLocalInformationRecords(images).catch((error) => {
     console.warn("Could not persist the local information index", error);
   });
@@ -566,6 +657,7 @@ function informationRecord(image) {
     face_count: image.faceCount || 0,
     status: image.permanentlyDeleted ? "image_deleted" : image.binned ? "local_bin" : "in_review",
     binned_at: image.binnedAt || null,
+    deletion_error: image.deletionError || null,
     export_name: image.exportName || null,
     updated_at: new Date().toISOString(),
   };
@@ -592,6 +684,7 @@ function getLocalInformationDb() {
 }
 
 async function persistLocalInformation(image) {
+  const startedAt = nowMs();
   const db = await getLocalInformationDb();
   await new Promise((resolve, reject) => {
     const transaction = db.transaction("records", "readwrite");
@@ -599,10 +692,12 @@ async function persistLocalInformation(image) {
     transaction.oncomplete = resolve;
     transaction.onerror = () => reject(transaction.error || new Error("Could not save local image information."));
   });
+  recordPerformance("PERF-08", startedAt, { count: 1, image_id: image.id });
 }
 
 async function persistLocalInformationRecords(images) {
   if (!images.length) return;
+  const startedAt = nowMs();
   const db = await getLocalInformationDb();
   await new Promise((resolve, reject) => {
     const transaction = db.transaction("records", "readwrite");
@@ -611,6 +706,7 @@ async function persistLocalInformationRecords(images) {
     transaction.oncomplete = resolve;
     transaction.onerror = () => reject(transaction.error || new Error("Could not save the local information index."));
   });
+  recordPerformance("PERF-08", startedAt, { count: images.length });
 }
 
 async function readLocalInformationRecords() {
@@ -633,6 +729,7 @@ async function clearLocalInformationRecords() {
 }
 
 async function renderInformationArchive() {
+  const startedAt = nowMs();
   elements.archiveList.replaceChildren();
   try {
     const records = await readLocalInformationRecords();
@@ -645,6 +742,7 @@ async function renderInformationArchive() {
         .includes(query);
     });
     elements.archiveSummary.textContent = `${filtered.length} saved record(s)${query ? ` matching “${query}”` : ""}. Original image files are not stored here.`;
+    recordPerformance("PERF-09", startedAt, { query_length: query.length, result_count: filtered.length });
     if (filtered.length === 0) {
       elements.archiveList.append(createElement("p", "empty-state", query ? "No saved information matches that search." : "No persistent information has been indexed yet."));
       return;
@@ -760,7 +858,9 @@ async function extractTextForImages(images) {
   for (const image of pending) {
     updateProcessingProgress({ phase: "Extracting local text", completed: complete, total: images.length });
     if (!image.ocrText) {
+      const ocrStartedAt = nowMs();
       const result = await runLocalOcr(image);
+      recordPerformance("PERF-06", ocrStartedAt, { image_id: image.id, filename: image.name, export_triggered: true });
       image.ocrText = result.text;
       image.ocrConfidence = result.confidence;
       image.textExtracted = result.text.length >= 10;
@@ -979,6 +1079,7 @@ async function processImagesWithAws(images) {
 }
 
 async function addImages(fileEntries, folderName, rootHandle = null) {
+  const intakeStartedAt = nowMs();
   const entries = [...fileEntries].map((entry) => entry?.file
     ? entry
     : { file: entry, path: entry.webkitRelativePath || entry.name, handle: null, parentHandle: null });
@@ -1008,6 +1109,8 @@ async function addImages(fileEntries, folderName, rootHandle = null) {
     binned: false,
     ocrProcessed: false,
   }));
+  resetPerformanceRun(state.images);
+  state.performance.startedAt = intakeStartedAt;
   state.folderName = folderName || "Selected pictures";
   state.exported = false;
   state.processing = { active: false, total: 0, completed: 0, startedAt: 0 };
@@ -1020,6 +1123,7 @@ async function addImages(fileEntries, folderName, rootHandle = null) {
   elements.results.hidden = false;
   updateView();
   render();
+  recordPerformance("PERF-03", intakeStartedAt, { count: state.images.length });
   void persistLocalInformationRecords(state.images).catch((error) => {
     console.warn("Could not create the local information index", error);
   });
@@ -1063,6 +1167,7 @@ async function addImages(fileEntries, folderName, rootHandle = null) {
       }
     }
   }
+  recordPerformance("PERF-07", intakeStartedAt, { count: state.images.length, archive_saved: true });
 }
 
 async function collectFolderImages(rootHandle) {
@@ -1521,6 +1626,7 @@ elements.exportCsv.addEventListener("click", () => {
   showToast("CSV exported with local AI categories and sensitive-content flags.");
 });
 async function exportOrganisedImages() {
+  const startedAt = nowMs();
   const images = state.images.filter((image) => !image.binned);
   if (images.length === 0) throw new Error("There are no remaining images to export.");
   if (typeof window.showDirectoryPicker !== "function") {
@@ -1545,6 +1651,7 @@ async function exportOrganisedImages() {
     console.warn("Could not persist export names", error);
   });
   state.exported = true;
+  recordPerformance("PERF-12", startedAt, { format: "renamed_images", count: images.length });
   render();
   showToast(`Exported ${images.length} remaining image(s) into category folders with their original formats preserved.`);
 }
@@ -1552,11 +1659,13 @@ elements.exportImages.addEventListener("click", async () => {
   try {
     await exportOrganisedImages();
   } catch (error) {
+    recordPerformanceFailure("PERF-12", error, { format: "renamed_images" });
     if (error instanceof DOMException && error.name === "AbortError") return;
     showToast(`Could not export renamed images: ${formatError(error)}`);
   }
 });
 elements.exportInfoCsv.addEventListener("click", async () => {
+  const startedAt = nowMs();
   const images = state.images.filter((image) => !image.binned);
   if (images.length === 0) {
     showToast("Choose pictures before exporting extracted information.");
@@ -1582,12 +1691,15 @@ elements.exportInfoCsv.addEventListener("click", async () => {
       ]);
     }
     downloadCsv(rows, "semacare-structured-information.csv");
+    recordPerformance("PERF-12", startedAt, { format: "csv", count: images.length });
     showToast("Information CSV exported locally: one row per image with organised text in the final column.");
   } catch (error) {
+    recordPerformanceFailure("PERF-12", error, { format: "csv" });
     showMessage(`Could not extract text: ${formatError(error)}`, true);
   }
 });
 elements.exportInfoJson.addEventListener("click", async () => {
+  const startedAt = nowMs();
   const images = state.images.filter((image) => !image.binned);
   if (images.length === 0) {
     showToast("Choose pictures before exporting extracted information.");
@@ -1604,12 +1716,19 @@ elements.exportInfoJson.addEventListener("click", async () => {
       exported_at: new Date().toISOString(),
       records: images.map(informationRecord),
     }, "semacare-information.json");
+    recordPerformance("PERF-12", startedAt, { format: "json", count: images.length });
     showToast("Structured information JSON exported locally.");
   } catch (error) {
+    recordPerformanceFailure("PERF-12", error, { format: "json" });
     showMessage(`Could not export structured information: ${formatError(error)}`, true);
   }
 });
+elements.exportPerformance.addEventListener("click", () => {
+  downloadJson(performanceReport(), "semacare-performance-report.json");
+  showToast("Performance report exported locally. Add cache/network notes before reporting results.");
+});
 elements.moveToBin.addEventListener("click", () => {
+  const startedAt = nowMs();
   const selectedImages = state.images.filter((image) => image.selected && !image.binned);
   if (selectedImages.length === 0) return;
   for (const image of selectedImages) {
@@ -1617,6 +1736,7 @@ elements.moveToBin.addEventListener("click", () => {
     image.binnedAt = Date.now();
     image.selected = false;
   }
+  recordPerformance("PERF-10", startedAt, { count: selectedImages.length, action: "move_to_bin" });
   void persistLocalInformationRecords(selectedImages).catch((error) => {
     console.warn("Could not persist recycle-bin status", error);
   });
@@ -1624,39 +1744,77 @@ elements.moveToBin.addEventListener("click", () => {
   showToast(`${selectedImages.length} picture(s) moved to the recycle bin. Nothing is deleted yet.`);
 });
 elements.emptyBin.addEventListener("click", async () => {
+  const startedAt = nowMs();
   const binnedImages = state.images.filter((image) => image.binned);
   if (binnedImages.length === 0) return;
   const confirmed = window.confirm(
     `Permanently delete ${binnedImages.length} item(s) from the selected folder? This cannot be undone.`,
   );
   if (!confirmed) return;
-  const removedIds = new Set(binnedImages.map((image) => image.id));
-  const deletable = binnedImages.filter((image) => image.parentHandle?.removeEntry);
-  const notDeletable = binnedImages.length - deletable.length;
+  const successfullyDeleted = [];
+  const failedDeletions = [];
+  let permissionError = null;
   try {
-    if (deletable.length > 0 && state.rootHandle?.queryPermission) {
+    if (state.rootHandle?.queryPermission) {
       const permission = await state.rootHandle.queryPermission({ mode: "readwrite" });
       if (permission !== "granted") {
         const requested = await state.rootHandle.requestPermission({ mode: "readwrite" });
-        if (requested !== "granted") throw new Error("Folder write permission was not granted.");
+        if (requested !== "granted") permissionError = "Folder write permission was not granted.";
       }
     }
-    for (const image of deletable) await image.parentHandle.removeEntry(image.name);
-    await deleteCloudImageRows([...removedIds]);
   } catch (error) {
-    showToast(`Nothing was permanently deleted: ${formatError(error)}`);
-    return;
+    permissionError = formatError(error);
   }
-  for (const image of binnedImages) URL.revokeObjectURL(image.previewUrl);
-  for (const image of binnedImages) image.permanentlyDeleted = true;
-  await persistLocalInformationRecords(binnedImages).catch((error) => {
+  for (const image of binnedImages) {
+    if (permissionError) {
+      image.deletionError = permissionError;
+      failedDeletions.push(image);
+      continue;
+    }
+    if (!image.parentHandle?.removeEntry) {
+      image.deletionError = "The original folder handle is unavailable.";
+      failedDeletions.push(image);
+      continue;
+    }
+    try {
+      await image.parentHandle.removeEntry(image.name);
+      image.permanentlyDeleted = true;
+      image.deletionError = null;
+      successfullyDeleted.push(image);
+    } catch (error) {
+      image.deletionError = formatError(error);
+      failedDeletions.push(image);
+    }
+  }
+  let cloudCleanupError = null;
+  try {
+    if (successfullyDeleted.length > 0) {
+      await deleteCloudImageRows(successfullyDeleted.map((image) => image.id));
+    }
+  } catch (error) {
+    cloudCleanupError = formatError(error);
+  }
+  for (const image of successfullyDeleted) URL.revokeObjectURL(image.previewUrl);
+  await persistLocalInformationRecords([...successfullyDeleted, ...failedDeletions]).catch((error) => {
     console.warn("Could not preserve information for deleted images", error);
+  });
+  const removedIds = new Set(successfullyDeleted.map((image) => image.id));
+  recordPerformance("PERF-11", startedAt, {
+    count: binnedImages.length,
+    deleted: successfullyDeleted.length,
+    failed: failedDeletions.length,
   });
   state.images = state.images.filter((image) => !removedIds.has(image.id));
   render();
-  showToast(notDeletable
-    ? `Deleted ${deletable.length} file(s). ${notDeletable} file(s) were kept because they were selected without folder write access.`
-    : "Recycle bin emptied. Selected files were permanently deleted.");
+  if (successfullyDeleted.length === 0) {
+    showToast(`No files were deleted. ${failedDeletions.length} item(s) remain in the recoverable bin.`);
+  } else if (failedDeletions.length > 0) {
+    showToast(`Deleted ${successfullyDeleted.length} file(s). ${failedDeletions.length} item(s) remain in the recoverable bin because deletion failed.`);
+  } else if (cloudCleanupError) {
+    showToast(`Deleted ${successfullyDeleted.length} file(s), but cloud metadata cleanup failed: ${cloudCleanupError}`);
+  } else {
+    showToast("Recycle bin emptied. Selected files were permanently deleted.");
+  }
 });
 
 void initializeAuth();
