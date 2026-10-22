@@ -34,11 +34,10 @@ def _headers(prefer: str | None = None) -> dict[str, str]:
 
     headers = {
         "apikey": key,
+        "Authorization": f"Bearer {key}",
         "Accept": "application/json",
         "Content-Type": "application/json",
     }
-    if key.startswith("eyJ"):
-        headers["Authorization"] = f"Bearer {key}"
     if prefer:
         headers["Prefer"] = prefer
     return headers

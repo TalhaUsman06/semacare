@@ -4,6 +4,7 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
+from botocore.exceptions import ClientError
 
 os.environ.setdefault("AWS_EC2_METADATA_DISABLED", "true")
 
@@ -134,6 +135,34 @@ def test_text_labels_trigger_textract_and_ocr_is_not_logged(
     assert patch["textract_used"] is True
     assert private_ocr_text not in caplog.text
     assert '"labels":["Text","Receipt"]' in caplog.text
+    assert s3.deleted == [(BUCKET, KEY)]
+
+
+def test_textract_subscription_error_falls_back_to_rekognition(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    _, database_update, recognition, s3 = setup_worker(monkeypatch)
+    recognition.detect_labels.return_value = {
+        "Labels": [{"Name": "Screenshot", "Confidence": 92.0}]
+    }
+    handler.TEXTRACT_CLIENT.detect_document_text.side_effect = ClientError(
+        {
+            "Error": {
+                "Code": "SubscriptionRequiredException",
+                "Message": "Textract requires account subscription",
+            }
+        },
+        "DetectDocumentText",
+    )
+
+    with caplog.at_level(logging.WARNING):
+        handler.lambda_handler(make_event(), None)
+
+    patch = database_update.call_args.args[2]
+    assert patch["status"] == "done"
+    assert patch["category"] == "Screenshots"
+    assert patch["textract_used"] is False
+    assert "Textract is unavailable" in caplog.text
     assert s3.deleted == [(BUCKET, KEY)]
 
 

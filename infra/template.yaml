@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: SEMACARE temporary-thumbnail AI categorisation stack.
+
+Parameters:
+  ExistingBucketName:
+    Type: String
+    Default: semacare-thumbs-tu-9822
+    Description: Existing S3 bucket name for temporary thumbnails. This stack does not create or delete it.
+    AllowedPattern: '^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$'
+  SupabaseUrl:
+    Type: String
+    Description: Supabase project URL used for bearer-token verification and REST writes.
+    AllowedPattern: '^https://.*$'
+  SupabasePublishableKey:
+    Type: String
+    NoEcho: true
+    Description: Supabase publishable/anon key used by the Lambda REST client.
+  SupabaseServiceKey:
+    Type: String
+    NoEcho: true
+    Description: Supabase service key. Never put this value in the browser.
+  FrontendOrigin:
+    Type: String
+    Default: http://localhost:5173
+    Description: Exact browser origin allowed by API Gateway and S3 CORS.
+    AllowedPattern: '^https?://[^/]+$'
+  UrlExpiry:
+    Type: Number
+    Default: 300
+    MinValue: 1
+    MaxValue: 3600
+
+Globals:
+  Function:
+    Runtime: python3.13
+    Architectures:
+      - arm64
+    MemorySize: 512
+    Timeout: 30
+    Environment:
+      Variables:
+        SUPABASE_URL: !Ref SupabaseUrl
+        SUPABASE_PUBLISHABLE_KEY: !Ref SupabasePublishableKey
+        SUPABASE_SERVICE_KEY: !Ref SupabaseServiceKey
+        BUCKET_NAME: !Ref ExistingBucketName
+        URL_EXPIRY: !Ref UrlExpiry
+
+Resources:
+  SemacareFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: semacare-ai
+      CodeUri: ../backend
+      Handler: entrypoint.lambda_handler
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - s3:GetObject
+                - s3:PutObject
+                - s3:DeleteObject
+              Resource: !Sub arn:${AWS::Partition}:s3:::${ExistingBucketName}/*
+            - Effect: Allow
+              Action: s3:ListBucket
+              Resource: !Sub arn:${AWS::Partition}:s3:::${ExistingBucketName}
+            - Effect: Allow
+              Action:
+                - rekognition:DetectLabels
+                - textract:DetectDocumentText
+              Resource: '*'
+      Events:
+        UploadUrls:
+          Type: HttpApi
+          Properties:
+            Path: /upload-urls
+            Method: POST
+            ApiId: !Ref SemacareHttpApi
+        Results:
+          Type: HttpApi
+          Properties:
+            Path: /results
+            Method: GET
+            ApiId: !Ref SemacareHttpApi
+        DeleteScan:
+          Type: HttpApi
+          Properties:
+            Path: /scans/{scan_id}
+            Method: DELETE
+            ApiId: !Ref SemacareHttpApi
+
+  AllowExistingBucketToInvoke:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref SemacareFunction
+      Principal: s3.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:s3:::${ExistingBucketName}
+
+  SemacareHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: '$default'
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref FrontendOrigin
+        AllowHeaders:
+          - authorization
+          - content-type
+        AllowMethods:
+          - GET
+          - POST
+          - DELETE
+          - OPTIONS
+
+Outputs:
+  ApiUrl:
+    Description: Set this value as apiUrl in frontend/config.js.
+    Value: !Sub https://${SemacareHttpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}
+  BucketName:
+    Description: Existing temporary thumbnail bucket.
+    Value: !Ref ExistingBucketName
+  FunctionName:
+    Description: Combined API and S3 worker Lambda.
+    Value: !Ref SemacareFunction

@@ -3,174 +3,87 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#f8fafc" />
-    <title>SEMACARE — Local-first picture organiser</title>
-    <link rel="stylesheet" href="./styles.css" />
+    <meta name="theme-color" content="#f7f4ee" />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <title>SEMACARE — Screenshot cleanup assistant</title>
+    <link rel="stylesheet" href="./styles.css?v=6" />
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.22.0/dist/tf.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/mobilenet@2.1.1" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js" defer></script>
     <script src="./config.js" defer></script>
-    <script src="./app.js" defer></script>
+    <script src="./app.js?v=37" defer></script>
   </head>
   <body>
     <header class="site-header">
-      <a class="brand" href="./" aria-label="SEMACARE home">
-        <span class="brand-mark" aria-hidden="true">S</span>
-        <span>SEMACARE</span>
-      </a>
-      <span class="demo-tag">Local-first MVP</span>
+      <div class="site-header-main">
+        <a class="brand" href="./" aria-label="SEMACARE home"><span class="brand-mark" aria-hidden="true">S</span><span>SEMACARE</span></a>
+        <nav class="site-nav" aria-label="Primary navigation"><a class="nav-link is-current" href="#workspace">Workspace</a><button class="nav-account" id="account-toggle" type="button" title="Optional account for metadata sync" aria-controls="account" aria-expanded="false">Account <span aria-hidden="true">·</span></button><a class="nav-review" href="#results">Review pictures <span aria-hidden="true">→</span></a></nav>
+        <span class="demo-tag"><span class="status-dot" aria-hidden="true"></span>Private by design</span>
+      </div>
+      <div class="journey-tracker" id="journey-tracker" aria-label="Review progress">
+        <div class="journey-summary"><span class="journey-overline">Your review</span><strong id="journey-status">Step 1 of 4 · Select a folder</strong></div>
+        <div class="journey-progress" role="progressbar" aria-label="Review progress" aria-valuemin="1" aria-valuemax="4" aria-valuenow="1"><span id="journey-progress-fill"></span></div>
+        <ol class="journey-steps" aria-label="Review steps"><li class="is-active" data-journey-step="1"><span>01</span><b>Select</b></li><li data-journey-step="2"><span>02</span><b>Understand</b></li><li data-journey-step="3"><span>03</span><b>Decide</b></li><li data-journey-step="4"><span>04</span><b>Export</b></li></ol>
+      </div>
     </header>
 
-    <main class="page">
-      <section class="intro">
-        <p class="eyebrow">A calmer way to tidy your pictures</p>
-        <h1>Find pictures by what they show.</h1>
-        <p class="intro-copy">
-          Choose a folder to preview your images and review the categories.
-          Images stay in this browser; metadata sync is optional.
-        </p>
+    <main class="page" id="workspace">
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">A calmer screenshot folder</p>
+          <h1>Make room for what matters.</h1>
+          <p class="intro-copy">SEMACARE turns screenshot clutter into a clear review: understand what each image contains, spot sensitive details, and choose what is safe to remove.</p>
+          <div class="hero-points" aria-label="Privacy highlights"><span><b>01</b><em>Nothing leaves your device by default</em></span><span><b>02</b><em>Every deletion starts in a recoverable bin</em></span></div>
+        </div>
+
+        <section class="folder-panel" aria-labelledby="folder-title">
+          <button class="step-label" id="start-step" type="button" aria-label="Start by choosing a folder"><span class="step-name">Begin your private review</span><span class="step-number">01</span></button>
+          <div class="folder-icon" aria-hidden="true">✦</div>
+          <h2 id="folder-title">See your folder clearly.</h2>
+          <p class="folder-copy-text">Choose JPG, PNG, or WebP images. We’ll group them into explainable categories, flag sensitive details, and leave the final decision with you.</p>
+          <div class="folder-actions">
+            <button class="button button-primary" id="choose-folder" type="button">Choose a folder <span aria-hidden="true">↗</span></button>
+            <button class="button button-secondary" id="choose-files" type="button">Pick pictures</button>
+            <input id="folder-input" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" webkitdirectory directory multiple tabindex="-1" aria-label="Choose a folder of pictures" />
+            <input id="files-input" class="visually-hidden" type="file" accept="image/jpeg,image/png,image/webp" multiple tabindex="-1" aria-label="Choose picture files" />
+          </div>
+          <label class="local-ai-option" for="local-ai-consent">
+            <input id="local-ai-consent" type="checkbox" checked />
+            <span><b>Use local AI</b><small>Classify images in this browser. Pictures never leave this device.</small></span>
+          </label>
+          <p class="folder-summary" id="folder-summary" aria-live="polite">No pictures selected yet.</p>
+          <div class="processing-status" id="processing-status" role="status" aria-live="polite" hidden>
+            <div class="processing-heading"><span id="processing-phase">Preparing local analysis</span><strong id="processing-percent">0%</strong></div>
+            <div class="processing-bar" role="progressbar" aria-label="Image processing progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="processing-progress-fill"></span></div>
+            <p id="processing-eta">Calculating time…</p>
+          </div>
+          <div class="privacy-note"><span aria-hidden="true">⌁</span> Nothing is deleted without your confirmation</div>
+        </section>
       </section>
 
-      <section class="auth-panel" aria-labelledby="auth-title">
-        <div class="auth-copy">
-          <h2 id="auth-title">Optional Supabase account</h2>
-          <p>
-            Sign in to save scan and category metadata to your account. Original
-            pictures and filenames stay on this device.
-          </p>
-          <p class="auth-status" id="auth-status" aria-live="polite">
-            Supabase is not configured. The local organiser still works.
-          </p>
-        </div>
+      <section class="auth-panel" id="account" aria-labelledby="auth-title" hidden>
+        <div class="account-drawer-header"><div><div class="section-kicker">Optional account · metadata sync</div><h2 id="auth-title">Save your organising history</h2></div><button class="account-close" id="account-close" type="button" aria-label="Close optional account panel">×</button></div>
+        <div class="auth-copy"><p>Sign in only if you want category metadata synced between sessions. Pictures and filenames are never sent.</p><p class="auth-status" id="auth-status" aria-live="polite">Supabase is not configured. The local organiser still works.</p></div>
         <form class="auth-form" id="auth-form">
-          <label>
-            Email
-            <input id="auth-email" type="email" autocomplete="username" required />
-          </label>
-          <label>
-            Password
-            <input id="auth-password" type="password" autocomplete="current-password" minlength="6" required />
-          </label>
-          <div class="auth-actions">
-            <button class="button button-primary" id="sign-in" type="submit">Sign in</button>
-            <button class="button button-secondary" id="sign-up" type="button">Create account</button>
-            <button class="button button-text" id="sign-out" type="button" hidden>Sign out</button>
-            <button class="button button-danger" id="erase-cloud-scan" type="button" hidden>
-              Erase all my saved metadata
-            </button>
-          </div>
-          <label class="metadata-consent">
-            <input id="metadata-consent" type="checkbox" />
-            Allow SEMACARE to save scan and category metadata to Supabase. Pictures,
-            filenames, and paths are never sent.
-          </label>
-          <label class="metadata-consent">
-            <input id="ai-upload-consent" type="checkbox" />
-            I agree to send temporary, resized image thumbnails to SEMACARE's AWS
-            service for AI classification. Originals, filenames, and paths are not
-            uploaded. AWS charges may apply.
-          </label>
+          <label>Email<input id="auth-email" type="email" autocomplete="username" required /></label>
+          <label>Password<input id="auth-password" type="password" autocomplete="current-password" minlength="6" required /></label>
+          <div class="auth-actions"><button class="button button-primary" id="sign-in" type="submit">Sign in</button><button class="button button-secondary" id="sign-up" type="button">Create account</button><button class="button button-text" id="sign-out" type="button" hidden>Sign out</button><button class="button button-danger" id="erase-cloud-scan" type="button" hidden>Erase saved metadata</button></div>
+          <div class="consent-stack"><label class="consent-row"><input id="metadata-consent" type="checkbox" /><span><b>Save metadata</b><small>Scan and category data only; never pictures or paths.</small></span></label><label class="consent-row is-paused"><input id="ai-upload-consent" type="checkbox" disabled /><span><b>AWS image AI temporarily paused</b><small>Local visual AI and OCR are active; images are not uploaded to AWS.</small></span></label></div>
         </form>
       </section>
 
-      <aside class="demo-notice" aria-label="Important demo information">
-        <span class="notice-icon" aria-hidden="true">i</span>
-        <p>
-          <strong>AI uploads are optional:</strong> without API configuration and both
-          consent checkboxes, categories use filenames only. With AI upload enabled,
-          resized temporary thumbnails are sent to AWS and deleted after processing;
-          AWS charges may apply. Filenames and paths are not sent. The bin only changes
-          this page, and emptying it can remove saved category metadata.
-          It does <strong>not</strong> delete original files.
-        </p>
-      </aside>
-
-      <section class="folder-panel" aria-labelledby="folder-title">
-        <div class="folder-copy">
-          <h2 id="folder-title">Start with a picture folder</h2>
-          <p>Choose JPG, PNG, or WebP images. Pictures stay on this device unless you opt in to AWS AI processing.</p>
-        </div>
-        <div class="folder-actions">
-          <button class="button button-primary" id="choose-folder" type="button">
-            Choose folder
-          </button>
-          <button class="button button-secondary" id="choose-files" type="button">
-            Choose pictures
-          </button>
-          <input
-            id="folder-input"
-            class="visually-hidden"
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            webkitdirectory
-            directory
-            multiple
-            tabindex="-1"
-            aria-label="Choose a folder of pictures"
-          />
-          <input
-            id="files-input"
-            class="visually-hidden"
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            multiple
-            tabindex="-1"
-            aria-label="Choose picture files"
-          />
-        </div>
-        <p class="folder-summary" id="folder-summary" aria-live="polite">
-          No folder selected yet.
-        </p>
-      </section>
+      <aside class="demo-notice" aria-label="Privacy information"><span class="notice-icon" aria-hidden="true">i</span><p><strong>Review before deleting:</strong> AI can make mistakes. Originals stay on your device, cloud AI is optional, and selected files go to a recoverable recycle bin before permanent deletion.</p></aside>
 
       <section class="results" id="results" aria-labelledby="results-title" hidden>
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Your pictures, kept on this device</p>
-            <h2 id="results-title">Review your pictures</h2>
-          </div>
-          <div class="view-switch" role="group" aria-label="Choose a view">
-            <button class="view-button is-active" id="view-categories" type="button" aria-pressed="true">
-              Categories
-            </button>
-            <button class="view-button" id="view-bin" type="button" aria-pressed="false">
-              Local bin <span class="bin-count" id="bin-count">0</span>
-            </button>
-          </div>
-        </div>
-
-        <div id="categories-view">
-          <div class="category-grid" id="category-grid" aria-label="Picture categories"></div>
-          <div class="review-toolbar">
-            <p id="selection-count" aria-live="polite">0 selected</p>
-            <div class="toolbar-actions">
-              <button class="button button-secondary" id="export-csv" type="button">Export CSV</button>
-              <button class="button button-text" id="select-visible" type="button">Select visible</button>
-              <button class="button button-text" id="clear-selection" type="button">Clear selection</button>
-              <button class="button button-danger" id="move-to-bin" type="button" disabled>
-                Move to local bin
-              </button>
-            </div>
-          </div>
-          <div class="image-grid" id="image-grid"></div>
-        </div>
-
-        <div id="bin-view" hidden>
-          <div class="bin-heading">
-            <div>
-              <h3>Local recycle bin</h3>
-              <p>These items are hidden from your categories, but the original files stay untouched.</p>
-            </div>
-            <button class="button button-danger" id="empty-bin" type="button" disabled>
-              Empty local bin
-            </button>
-          </div>
-          <div class="image-grid" id="bin-grid"></div>
-        </div>
+        <div class="section-heading"><div><p class="eyebrow">Your private workspace</p><h2 id="results-title">Review your pictures</h2></div><div class="view-switch" role="group" aria-label="Choose a view"><button class="view-button is-active" id="view-categories" type="button" aria-pressed="true">Categories</button><button class="view-button" id="view-bin" type="button" aria-pressed="false">Local bin <span class="bin-count" id="bin-count">0</span></button><button class="view-button" id="view-archive" type="button" aria-pressed="false">Information archive</button></div></div>
+        <div id="categories-view"><div class="category-grid" id="category-grid" aria-label="Picture categories"></div><div class="review-toolbar"><p id="selection-count" aria-live="polite">0 selected</p><div class="toolbar-actions"><button class="button button-secondary" id="export-csv" type="button">Export categories CSV</button><button class="button button-secondary" id="export-info-csv" type="button">Export information CSV</button><button class="button button-secondary" id="export-info-json" type="button">Export information JSON</button><button class="button button-secondary" id="view-information" type="button">View information</button><button class="button button-secondary" id="export-images" type="button">Export renamed images</button><button class="button button-text" id="select-visible" type="button">Select visible</button><button class="button button-text" id="clear-selection" type="button">Clear selection</button><button class="button button-danger" id="move-to-bin" type="button" disabled>Move to local bin</button></div></div><div class="image-grid" id="image-grid"></div></div>
+        <div id="bin-view" hidden><div class="bin-heading"><div><h3>Recoverable recycle bin</h3><p>Restore items or permanently delete them after review. The 24-hour window is shown per item.</p></div><button class="button button-danger" id="empty-bin" type="button" disabled>Delete permanently</button></div><div class="image-grid" id="bin-grid"></div></div>
+        <div id="archive-view" hidden><div class="archive-heading"><div><h3>Saved information archive</h3><p>Structured text stays in this browser, even after its original image is deleted.</p><button class="button button-text" id="clear-archive" type="button">Clear local archive</button></div><label class="archive-search"><span>Search saved information</span><input id="archive-search" type="search" placeholder="Search names, text, amounts or dates" /></label></div><p class="archive-summary" id="archive-summary" aria-live="polite">Loading saved information…</p><div class="archive-list" id="archive-list"></div></div>
       </section>
     </main>
-
-    <footer class="site-footer">
-      <p>SEMACARE prototype · Images stay on this device · No original files are deleted</p>
-    </footer>
+    <footer class="site-footer"><p>SEMACARE · Your pictures stay yours</p></footer>
     <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
   </body>
 </html>

@@ -103,15 +103,25 @@ def _process_record(record: Mapping[str, Any]) -> None:
         ]
         ocr_text = ""
         if needs_text(categoriser_labels):
-            textract_used = True
-            text_response = TEXTRACT_CLIENT.detect_document_text(
-                Document={"S3Object": {"Bucket": bucket, "Name": key}}
-            )
-            ocr_text = "\n".join(
-                block["Text"]
-                for block in text_response.get("Blocks", [])
-                if block.get("BlockType") == "LINE" and isinstance(block.get("Text"), str)
-            )
+            try:
+                text_response = TEXTRACT_CLIENT.detect_document_text(
+                    Document={"S3Object": {"Bucket": bucket, "Name": key}}
+                )
+                textract_used = True
+                ocr_text = "\n".join(
+                    block["Text"]
+                    for block in text_response.get("Blocks", [])
+                    if block.get("BlockType") == "LINE" and isinstance(block.get("Text"), str)
+                )
+            except ClientError as exc:
+                error_code = exc.response.get("Error", {}).get("Code")
+                if error_code != "SubscriptionRequiredException":
+                    raise
+                logger.warning(
+                    "Textract is unavailable for this AWS account; continuing with "
+                    "Rekognition-only classification for image %s",
+                    image_id,
+                )
 
         category, confidence = categorise(
             categoriser_labels,

@@ -1,5 +1,20 @@
 # SEMACARE Docs: Index
 
+## Current source of truth
+
+Read [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) first when continuing development in a new
+chat or with a new contributor. It describes the implemented local-first workflow,
+current categories, OCR and persistent information archive, export behavior, AWS status,
+limitations, and Android direction. The older ordered task plan below is retained as
+project history and planning material; it is not a guarantee that every task still
+matches the current implementation.
+
+## Testing
+
+The current frontend acceptance matrix is in [testing/frontend-test-cases.md](testing/frontend-test-cases.md).
+It separates automated contract tests, browser acceptance tests, and live AWS/Supabase
+checks so privacy and cost-sensitive tests are not accidentally run against real data.
+
 ## How to use these docs
 
 1. Read the **design** files once, in order (about 30 minutes). They explain *what* to build and *why*.

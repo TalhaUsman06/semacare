@@ -129,12 +129,12 @@ def test_parse_json_rejects_invalid_bodies(event: dict[str, object]) -> None:
         responses.parse_json(event)
 
 
-def test_service_secret_header_uses_apikey_without_authorization(
+def test_service_secret_header_uses_apikey_and_authorization(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "sb_secret_test")
     assert _headers()["apikey"] == "sb_secret_test"
-    assert "Authorization" not in _headers()
+    assert _headers()["Authorization"] == "Bearer sb_secret_test"
 
 
 def test_legacy_jwt_also_sends_bearer_authorization(
@@ -164,7 +164,7 @@ def test_select_uses_rest_url_and_apikey(
     request = urlopen.call_args.args[0]
     assert request.full_url == "https://example.supabase.co/rest/v1/scans?select=id"
     assert request.get_header("Apikey") == "sb_secret_test"
-    assert request.get_header("Authorization") is None
+    assert request.get_header("Authorization") == "Bearer sb_secret_test"
 
 
 def test_insert_and_upsert_send_expected_prefer_headers(

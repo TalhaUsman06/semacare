@@ -9,6 +9,7 @@ __pycache__/
 dist/
 backend/dist/
 frontend/dist/
+.aws-sam/
 
 # Local secrets and project-specific configuration
 .env
